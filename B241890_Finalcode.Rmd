@@ -1,0 +1,557 @@
+---
+title: "Final_code"
+author: "B241980"
+date: "`r Sys.Date()`"
+output: 
+  pdf_document: 
+    fig_width: 14
+    fig_height: 11
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+#Library all packages what I need.
+library(tidyverse)
+library(tidytext) 
+library(ggthemes)
+library(readr)
+library(babynames)
+library(stringr)
+library(topicmodels)
+library(gutenbergr)
+library(scales)
+library(tm)
+library(quanteda)
+library(quanteda.textmodels)
+library(preText)
+library(dplyr)
+library(ggplot2)
+library(gdata)
+library(quanteda.textstats)
+library(scales)
+```
+
+```{r}
+#Read my data sample.
+data_samp <- read.csv("my_data.csv")
+```
+# This data is selected from assessment data (Osnabrügge, Hobolt, and Rodon (2021) data). Because the data set is too large, I choose to sample 10,000 data, and because the results of each sample are inconsistent, I choose the data “my_data” stored in the first sample.
+
+```{r}
+#Look at my data variables names.
+colnames(data_samp)
+```
+
+```{r}
+#Data clean: choose a text size greater than 40 words.
+data_samp <- data_samp %>%
+   filter(words > 40)
+```
+#A small number of texts may affect the analysis, 40 words, about 2-3 sentences, are considered valid texts.
+
+```{r}
+#Create a new data set called "evdes", and choose "text", "period", "female" as the variables.
+#Create a new variable "gender", depending on the value of the female column (1 is Female and 0 is Male).
+#Convert it to the corresponding gender label: "Female" or "Male".
+ evdes <- data_samp %>%
+   select(text,period,female) %>%
+   mutate(gender = ifelse(female ==1, "Female", "Male"))
+
+head(evdes)
+```
+ 
+
+```{r}
+#A new column is created in evdes data set, with each row populated with 1, for counting events.
+#The data is grouped by two columns, period and gender.
+#Aggregate statistics are performed for each group. 
+#Counting the total number of events in each period and gender combination.
+#Use .groups = "drop" to ensure that group information is not included in the results.
+ evtsp_gender <- evdes %>%
+   mutate(obs = 1) %>%
+   group_by(period,gender) %>%
+   summarise(sum_events = sum(obs), .groups = "drop")
+```
+
+```{r}
+#Visualize
+ggplot(evtsp_gender, aes(x = period, y = sum_events, fill = gender)) +
+  geom_col(position = "dodge") +
+  theme_minimal() +
+  labs(x = "Period", y = "Count of Texts", title = "Texts Over Time by Gender") +
+  scale_fill_manual(values = c("Male" = "grey", "Female" = "skyblue"))
+```
+#Outcomes: During this period of time, male MPs have always held significant influence, especially between 2001 and 2015, when the number of speeches by male MPs exceeded those by female MPs. However, the number of speeches by female MPs has gradually increased, indicating a growing presence of women’s voices in the political arena. The sharp decline in speeches by both male and female MPs between 2015 and 2017 can be attributed to a narrower time frame.The dominance of men in text output indicates that men have a greater voice in the relevant field or are more involved in the context of text generation. For women, this may imply gender inequality in representation and fewer voices in public forums and politics.
+
+```{r}
+#Create a new data set called "tidy_data".
+#Exclude stop words and "hon", "hon" represents "honorable". 
+#"hon" is a high frequency word but it has no meaning in text analysis so drop it.
+tidy_data<- data_samp %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words) %>%
+  filter(!word %in% c("hon"))
+```
+
+```{r}
+#Count most common words in both.
+tidy_data %>%
+  count(word, sort = TRUE) %>%
+  head(10)
+```
+
+```{r}
+#Calculate the frequency of words in different genders and convert it to a ratio.
+freq <- tidy_data %>%
+  mutate(gender = ifelse(female, "1", "0")) %>%
+  mutate(word = str_extract(word, "[a-z']+")) %>%
+  count(gender, word) %>%
+  group_by(gender) %>%
+  mutate(proportion = n / sum(n)) %>% 
+  select(-n) %>% 
+  spread(gender, proportion)
+```
+
+```{r}
+#Visualize
+ggplot(freq, aes(x = `0`, y = `1`, color = abs(`0` - `1`))) +
+  geom_abline(color = "gray40", lty = 2) +
+  geom_jitter(alpha = 0.05, size = 2.5, width = 0.3, height = 0.3) + 
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.5, alpha = 0.8) +  
+  scale_x_log10(labels = percent_format()) +
+  scale_y_log10(labels = percent_format()) +
+  scale_color_gradient(limits = c(0, 0.01), low = "darkslategray4", high = "gray75") +  
+  theme_tufte(base_family = "Helvetica") +
+  theme(legend.position = "none", 
+        strip.background = element_blank(), 
+        strip.text.x = element_blank()) +
+  labs(x = "Male Proportion", y = "Female Proportion") +  
+  coord_equal()
+```
+#Outcome: The graph shows how male and female MPs use specific terms differently. The diagonal line represents terms used equally by both genders, while deviations from this line show words used more by one gender than the other. Male and female MPs frequently use words like “government”, “bill”, “committee”, and “hope”, which are distributed similarly between the genders as shown by their placement on the diagonal. However, there are slight differences in the distribution of certain words. For instance, words like “women” and “carers” are positioned to the left of the diagonal, indicating a higher prevalence among female MPs. Additionally, female MPs often discuss topics such as “divorce” and “abortion”, whereas male MPs show a preference for words like “armed” and “military”. These differences reflect potential gender stereotypes and suggest that MPs speak on issues aligned with their gender identity. Female MPs prioritize women’s issues and focus on social topics.
+
+```{r}
+#Tokenize speech text in "data_samp".
+#Filter out words that don't contain letters.
+token_data <- data_samp %>%
+  mutate(desc = tolower(text)) %>%
+unnest_tokens(word,desc) %>%
+  filter(str_detect(word, "[a-z]"))
+```
+
+```{r}
+#Filter stop words.
+token_data <- token_data %>%
+    filter(!word %in% stop_words$word)
+```
+
+```{r}
+#Print stop words.
+stop_words
+```
+
+```{r}
+#The words in the "token_data" data set are counted and sorted by occurrence.
+token_data %>%
+  count(word, sort = TRUE) %>%
+  head(10)
+```
+
+```{r}
+#Clean data, remove some of the useless or meaningless characters.
+remove_reg <- c("&amp;","&lt;","&gt;","<p>", "</p>","&rsquo", "&lsquo;",  "&#39;", "<strong>",
+                "</strong>", "rsquo", "em", "ndash", "nbsp", "lsquo")
+token_data <- token_data %>%
+  filter(!word %in% remove_reg)
+```
+
+```{r}
+#Check again.
+token_data %>%
+  count(word, sort = TRUE) %>%
+  head(10)
+```
+
+```{r}
+#Count the words commonly used by male MPs.
+male_words <- token_data %>%
+  filter(female == "0") %>%
+  count(word, sort = TRUE)
+
+#Count the words commonly used by female MPs.
+female_words <- token_data %>%
+  filter(female == "1") %>%
+  count(word, sort = TRUE)
+```
+
+```{r}
+#Choose some words, which can represent "leadership" and "caring".
+leadership_words <- c("authority", "decisive", "rule")
+caring_words <- c("care", "concern", "aid")
+
+#Count ratio by gender groups.
+male_leadership <- male_words %>%
+  filter(word %in% leadership_words)
+
+female_leadership <- female_words %>%
+  filter(word %in% leadership_words)
+
+male_caring_empathy <- male_words %>%
+  filter(word %in% caring_words)
+
+female_caring_empathy <- female_words %>%
+  filter(word %in% caring_words)
+
+#Calculate total words for normalization.
+total_male_words <- sum(male_words$n)
+total_female_words <- sum(female_words$n)
+```
+
+```{r}
+#Normalize frequencies by total word counts to get proportional use. 
+male_leadership <- male_leadership %>%
+  mutate(proportion = n / total_male_words)
+
+female_leadership <- female_leadership %>%
+  mutate(proportion = n / total_female_words)
+
+male_caring <- male_caring_empathy %>%
+  mutate(proportion = n / total_male_words)
+
+female_caring <- female_caring_empathy %>%
+  mutate(proportion = n / total_female_words)
+```
+#Due to the weight or significance of their speeches, male MPs have a higher ratio, and using proportions to describe and compare can be more appropriate.
+
+```{r}
+#Combine data for plotting.
+leadership_words_df <- rbind(
+  male_leadership %>%
+    mutate(gender = "Male"),
+  female_leadership %>%
+    mutate(gender = "Female")
+)
+
+caring_words_df <- rbind(
+  male_caring %>%
+    mutate(gender = "Male"),
+  female_caring %>%
+    mutate(gender = "Female")
+)
+```
+
+```{r}
+#Visualize "leadership" plot
+ggplot(leadership_words_df, aes(x = word, y = proportion, fill = gender)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  scale_fill_manual(values = c("Male" = "grey", "Female" = "skyblue")) +
+  labs(x = "Word", y = "Proportional Use", fill = "Gender", 
+       title = "Proportional Use of Leadership Words") +
+  theme_minimal()
+```
+#Outcome: Male MPs used words related to "leadership" such as "authority" and "rule" more frequently compared to female MPs, with usage rates approximately 0.013% and 0.017% higher, respectively. However, both male and female legislators used the word “decisive” less frequently. These results suggest that male MPs are more inclined to use language reflecting authority and regulation in their speeches.
+
+```{r}
+#Visualize "caring" plot
+ggplot(caring_words_df, aes(x = word, y = proportion, fill = gender)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  scale_fill_manual(values = c("Male" = "grey", "Female" = "skyblue")) +
+  labs(x = "Word", y = "Proportional Use", fill = "Gender", 
+       title = "Proportional Use of Caring Words") +
+  theme_minimal()
+```
+#Outcome: In the set of words associated with caring, female MPs had a higher proportion of usage for all three words compared to male legislators. The word “care” showed the largest difference in usage proportion, with female MPs using it about 0.14% more than male MPs. Additionally, for the words like “aid” and “concern,” female MPs had approximately 0.1% and 0.025% higher usage proportions, respectively. This pattern could be interpreted as female legislators being more inclined to use language that expresses care and empathy. This tendency may be related to gender roles or linguistic habits traditionally associated with women.
+
+```{r}
+#Divide data set into two data sets, according to gender.
+male_data <- data_samp %>%
+  filter(female == "0")
+
+female_data <- data_samp %>%
+  filter(female == "1")
+```
+
+```{r}
+#Create male MPs and female MPs Document-Term Matrix. And drop "hon" for same reason.
+male_dtm <- male_data %>%
+  select(party, text) %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words) %>%
+  filter(!word %in% c("hon")) %>%
+  filter(!grepl("\\d", word)) %>% 
+  count(party,word) %>%
+  cast_dtm(party,word, n)
+
+female_dtm <- female_data %>%
+  select(party, text) %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words) %>%
+  filter(!word %in% c("hon")) %>%
+  count(party, word) %>%
+  cast_dtm(party, word, n)
+```
+
+```{r}
+#Topic modelling, choose 10 as topic numbers at first.
+male_lda <- LDA(male_dtm, k = 10) 
+female_lda <- LDA(female_dtm, k = 10) 
+```
+
+```{r}
+#Use perplexity to make sure the number of topics.
+#Define the range.
+num_topics <- c(5, 10, 15, 20)
+
+#Calculate perplexity.
+perplexity_values <- sapply(num_topics, function(k) {
+  lda_model <- LDA(male_dtm, k = k, control = list(seed = 123))
+  perplexity(lda_model)
+})
+
+#Visualize
+plot(num_topics, perplexity_values, type = "b", 
+     xlab = "Number of Topics", ylab = "Perplexity",
+     main = "Perplexity vs. Number of Topics")
+```
+#Outcome: More topics are desirable, but with too many topics, there may be thematic overlap. When considering 10, 15, and 20 topics, the difference in quality is not substantial. To ensure topic independence, I opt for 10 topics.
+
+```{r}
+#Choose the number of topics for female MPs.
+num_topics <- c(5, 10, 15, 20)
+
+
+perplexity_values <- sapply(num_topics, function(k) {
+  lda_model <- LDA(female_dtm, k = k, control = list(seed = 123))
+  perplexity(lda_model)
+})
+
+
+plot(num_topics, perplexity_values, type = "b", 
+     xlab = "Number of Topics", ylab = "Perplexity",
+     main = "Perplexity vs. Number of Topics")
+```
+#Outcome: Decision and reason are same as the outcome for male MPs.
+
+```{r}
+#Topic modelling.
+male_lda <- LDA(male_dtm, k = 10) 
+female_lda <- LDA(female_dtm, k = 10) 
+```
+
+```{r}
+#Male MPs topic model.
+male_topics <- tidy(male_lda, matrix = "beta") %>% group_by(topic) %>%
+top_n(10, beta) %>%
+ungroup() %>%
+arrange(topic, -beta)
+
+#Female MPs topic model.
+female_topics <- tidy(female_lda, matrix = "beta") %>% group_by(topic) %>%
+top_n(10, beta) %>%
+ungroup() %>%
+arrange(topic, -beta)
+```
+
+```{r}
+#Visualize
+male_topics %>%
+  ggplot(aes(x = reorder(term, beta), y = beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  labs(x = NULL, y = "Beta", title = "Male MPS Topics") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+
+female_topics %>%
+  ggplot(aes(x = reorder(term, beta), y = beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  labs(x = NULL, y = "Beta", title = "Female MPS Topics") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+#Outcome: Show ten high frequency words under ten themes for male MPs, and have a general view of their debate topics. Male MPs predominantly focus on government-related topics, reflecting societal expectations of male leadership in politics. They also address social issues, but these discussions often take a back seat to governmental matters. Female MPs prioritize discussions on social welfare, rights, and equality more than male MPs. This emphasis reflects societal expectations for women to focus on community and welfare issues in politics. The use of terms like “women” and “rights” by female MPs indicates a growing recognition of gender equality and civil rights in political discourse. This underscores the evolving role of women in addressing social challenges and advocating for inclusive policies within political contexts.
+
+```{r}
+#Get "afinn" sentiment dictionary.
+afinn <- get_sentiments("afinn")
+```
+#The reason for choosing this dictionary is that each word used in the speeches was assigned an emotion score between -5 and +5, allowing for a straightforward and intuitive assessment of the emotional tendencies present in the speeches.
+
+```{r}
+#Select 1000 words from male and female topics to do sentiment analysis.
+
+#male MPs
+male_topics <- tidy(male_lda, matrix = "beta") %>% group_by(topic) %>%
+top_n(1000, beta) %>%
+ungroup() %>%
+arrange(topic, -beta)
+
+#female MPs
+female_topics <- tidy(female_lda, matrix = "beta") %>% group_by(topic) %>%
+top_n(1000, beta) %>%
+ungroup() %>%
+arrange(topic, -beta)
+```
+#The choice of 1000 words allows for a more robust emotional comparison compared to using 100 or 10,000 words.
+
+```{r}
+#Added an emotion score to the male MP themes.
+male_topics_sentiment <- male_topics %>%
+  mutate(topic = as.character(topic)) %>%
+  inner_join(afinn, by = c(term = "word")) %>%
+  group_by(topic) %>%
+  summarise(
+    positive_sentiment = sum(value[value > 0]),
+    negative_sentiment = sum(value[value < 0])
+  ) %>%
+  pivot_longer(cols = c(positive_sentiment, negative_sentiment), 
+               names_to = "sentiment_type", values_to = "score")
+
+#Added an emotion score to the female MP themes.
+female_topics_sentiment <- female_topics %>%
+  mutate(topic = as.character(topic)) %>%
+  inner_join(afinn, by = c(term = "word")) %>%
+  group_by(topic) %>%
+  summarise(
+    positive_sentiment = sum(value[value > 0]),
+    negative_sentiment = sum(value[value < 0])
+  ) %>%
+  pivot_longer(cols = c(positive_sentiment, negative_sentiment), 
+               names_to = "sentiment_type", values_to = "score")
+```
+
+```{r}
+#Visualize
+male_plot <- ggplot(male_topics_sentiment, aes(x = factor(topic), y = score, fill = sentiment_type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(x = "Topic", y = "Sentiment Score", fill = "Sentiment Type", 
+       title = "Sentiment Analysis for Male MPs' Topics") +
+  theme_minimal() +
+  coord_flip()
+
+#visualize
+female_plot <- ggplot(female_topics_sentiment, aes(x = factor(topic), y = score, fill = sentiment_type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(x = "Topic", y = "Sentiment Score", fill = "Sentiment Type", 
+       title = "Sentiment Analysis for Female MPs' Topics") +
+  theme_minimal() +
+  coord_flip()
+
+#print
+gridExtra::grid.arrange(male_plot, female_plot, ncol = 2)
+```
+#outcome: This graph shows the emotional scores of female MPs of male MPs under different themes. For male MPs, there is not a significant difference between positive sentiment and negative sentiment across these 10 topics. This suggests that the language used by male MPs in their speeches may be more balanced, with no clear bias towards extremely positive or extremely negative expressions of emotion. In contrast, significant differences can be observed in the sentiments expressed by female MPs. The emotional score range of female parliamentarians is larger than that of male MPs, indicating that female MPs tend to express a broader range of positive and negative emotions than men.
+
+```{r}
+#Calculate positive sentiment score for male MPs.
+positive_sentiment_male <- token_data %>%
+  filter(female == 0) %>%
+  inner_join(afinn, by = "word") %>%
+  filter(value > 0) %>%
+  group_by(text) %>%
+  summarise(positive_sentiment_score = sum(value))
+
+#Calculate negative sentiment score for male MPs.
+negative_sentiment_male <- token_data %>%
+  filter(female == 0) %>%
+  inner_join(afinn, by = "word") %>%
+  filter(value < 0) %>%
+  group_by(text) %>%
+  summarise(negative_sentiment_score = sum(value))
+
+sentiment_scores_male <- full_join(positive_sentiment_male, negative_sentiment_male, by = "text")
+
+#View the results.
+sentiment_scores_male
+```
+
+```{r}
+#Calculate negative sentiment score for female MPs.
+positive_sentiment_female <- token_data %>%
+  filter(female == 1) %>%
+  inner_join(afinn, by = "word") %>%
+  filter(value > 0) %>%
+  group_by(text) %>%
+  summarise(positive_sentiment_score = sum(value))
+
+#Calculate negative sentiment score for female MPs.
+negative_sentiment_female <- token_data %>%
+  filter(female == 1) %>%
+  inner_join(afinn, by = "word") %>%
+  filter(value < 0) %>%
+  group_by(text) %>%
+  summarise(negative_sentiment_score = sum(value))
+
+sentiment_scores_female <- full_join(positive_sentiment_female, negative_sentiment_female, by = "text")
+
+#View the results.
+sentiment_scores_female
+```
+
+
+```{r}
+#Average emotion scores for male and female texts were calculated.
+mean_sentiment_male <- sentiment_scores_male %>%
+  summarise(
+    gender = "Male",
+    mean_positive_sentiment = mean(positive_sentiment_score, na.rm = TRUE),
+    mean_negative_sentiment = mean(negative_sentiment_score, na.rm = TRUE)
+  )
+
+mean_sentiment_female <- sentiment_scores_female %>%
+  summarise(
+    gender = "Female",
+    mean_positive_sentiment = mean(positive_sentiment_score, na.rm = TRUE),
+    mean_negative_sentiment = mean(negative_sentiment_score, na.rm = TRUE)
+  )
+
+#Combine the two data frames.
+mean_sentiment <- rbind(mean_sentiment_male, mean_sentiment_female)
+```
+
+```{r}
+#Converts wide-format data to long format.
+mean_sentiment_long <- pivot_longer(
+  mean_sentiment,
+  cols = starts_with("mean_"),
+  names_to = "sentiment_type",
+  values_to = "score"
+)
+```
+
+```{r}
+#Visualize
+ggplot(mean_sentiment_long, aes(x = gender, y = score, fill = sentiment_type)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  scale_fill_manual(values = c("mean_positive_sentiment" = "pink",
+                               "mean_negative_sentiment" = "skyblue")) +
+  labs(x = "Gender", y = "Mean Sentiment Score", fill = "Sentiment Type", 
+       title = "Sentiment Score Comparison between Male and Female MPs") +
+  theme_minimal()
+```
+#Outcome: The higher sentiment score among male MPs is attributed to difference between their positive sentiment score (13.5) and negative sentiment score (-11). In contrast, female MPs have higher scores in both positive (14.5) and negative (-12.7) emotions, but the difference in emotion scores is narrower compared to male MPs. This phenomenon is likely linked to gender stereotypes and societal expectations placed on female MPs. Women are often perceived to be more empathetic and emotionally expressive, leading female MPs to prioritize discussions on social issues over their male counterparts. Addressing these issues helps female MPs connect with the public, requiring strategic emotional expression to resonate effectively with their audience.
